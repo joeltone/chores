@@ -8,7 +8,8 @@ _conn: sqlite3.Connection | None = None
 def get_db() -> sqlite3.Connection:
     global _conn
     if _conn is None:
-        path = os.getenv("DB_PATH", "chores.db")
+        path = os.getenv("DB_PATH", "data/chores.db")
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
         _conn = sqlite3.connect(path, check_same_thread=False)
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA journal_mode=WAL")

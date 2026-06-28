@@ -10,6 +10,7 @@ ExecStart=/opt/chore-bot/venv/bin/python bot.py
 Restart=always
 RestartSec=10
 EnvironmentFile=/opt/chore-bot/.env
+# Databases live in /opt/chore-bot/data/ — back up that directory
 
 [Install]
 WantedBy=multi-user.target
