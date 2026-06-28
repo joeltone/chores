@@ -1,0 +1,15 @@
+[Unit]
+Description=Discord Chore Rotation Bot
+After=network.target
+
+[Service]
+Type=simple
+User=joel
+WorkingDirectory=/opt/chore-bot
+ExecStart=/opt/chore-bot/venv/bin/python bot.py
+Restart=always
+RestartSec=10
+EnvironmentFile=/opt/chore-bot/.env
+
+[Install]
+WantedBy=multi-user.target
