@@ -62,6 +62,29 @@ class ChoresCog(commands.Cog):
         db.commit()
         await interaction.response.send_message(f"Chore **{chore_name}** deactivated.")
 
+    @chore_group.command(name="rename", description="Rename a chore")
+    @app_commands.describe(old_name="Current chore name", new_name="New chore name")
+    async def chore_rename(self, interaction: discord.Interaction,
+                            old_name: str, new_name: str):
+        log_command(str(interaction.user.id), interaction.user.display_name,
+                    "/chore rename", {"old_name": old_name, "new_name": new_name})
+
+        db = get_db()
+        row = db.execute(
+            "SELECT chore_id FROM chores WHERE chore_name = ? AND is_active = 1",
+            (old_name,)).fetchone()
+
+        if not row:
+            await interaction.response.send_message(
+                f"No active chore named **{old_name}**.", ephemeral=True)
+            return
+
+        db.execute("UPDATE chores SET chore_name = ? WHERE chore_id = ?",
+                   (new_name, row["chore_id"]))
+        db.commit()
+        await interaction.response.send_message(
+            f"Renamed **{old_name}** to **{new_name}**.")
+
     @chore_group.command(name="exclude", description="Exclude a user from a specific chore")
     @app_commands.describe(member="The user to exclude", chore_name="The chore name")
     async def chore_exclude(self, interaction: discord.Interaction,

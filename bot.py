@@ -65,7 +65,10 @@ async def on_ready():
         log.error("Failed to sync commands: %s", e)
 
     # Schedule daily jobs (idempotent: replace_existing=True)
+    import scheduler_jobs
     from scheduler_jobs import run_daily_assignments, run_escalation_check
+
+    scheduler_jobs.set_bot(bot)
 
     scheduler.add_job(
         run_daily_assignments,
@@ -74,7 +77,6 @@ async def on_ready():
         minute=0,
         id="daily_assignments",
         replace_existing=True,
-        args=[bot],
     )
     scheduler.add_job(
         run_escalation_check,
@@ -83,7 +85,6 @@ async def on_ready():
         minute=0,
         id="daily_escalation",
         replace_existing=True,
-        args=[bot],
     )
 
     if not scheduler.running:

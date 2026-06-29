@@ -8,8 +8,16 @@ import discord
 
 log = logging.getLogger(__name__)
 
+_bot: discord.Client | None = None
 
-async def run_daily_assignments(bot: discord.Client) -> None:
+
+def set_bot(bot: discord.Client) -> None:
+    global _bot
+    _bot = bot
+
+
+async def run_daily_assignments() -> None:
+    bot = _bot
     """Create new assignments for chores due today."""
     from db import get_db
     from rotation import get_next_user, create_assignment
@@ -83,7 +91,8 @@ async def run_daily_assignments(bot: discord.Client) -> None:
                  chore["chore_name"], next_user["display_name"], assignment_id)
 
 
-async def run_escalation_check(bot: discord.Client) -> None:
+async def run_escalation_check() -> None:
+    bot = _bot
     """Escalate overdue assignments and ping admin."""
     from db import get_db
 
