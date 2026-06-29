@@ -30,7 +30,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 db_path = os.getenv("DB_PATH", "data/chores.db")
 _jobs_db = os.path.join(os.path.dirname(db_path), "jobs.db")
 jobstores = {"default": SQLAlchemyJobStore(url=f"sqlite:///{_jobs_db}")}
-scheduler = AsyncIOScheduler(jobstores=jobstores)
+scheduler = AsyncIOScheduler(jobstores=jobstores, misfire_grace_time=600)
 
 
 @bot.event

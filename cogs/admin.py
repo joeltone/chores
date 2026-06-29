@@ -59,5 +59,22 @@ class AdminCog(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+    @admin_group.command(name="run-assignments", description="[Admin] Manually trigger today's assignment run")
+    async def admin_run_assignments(self, interaction: discord.Interaction):
+        if not _is_admin(interaction):
+            await interaction.response.send_message("Admin only.", ephemeral=True)
+            return
+
+        log_command(str(interaction.user.id), interaction.user.display_name,
+                    "/admin run-assignments")
+
+        await interaction.response.defer(ephemeral=True)
+
+        from scheduler_jobs import run_daily_assignments
+        await run_daily_assignments()
+
+        await interaction.followup.send("Assignment run complete.", ephemeral=True)
+
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(AdminCog(bot))
