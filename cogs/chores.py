@@ -312,32 +312,50 @@ class ChoresCog(commands.Cog):
 
         from rotation import get_eligible_users
         from views import post_chores_thread
+        today = date.today()
         seed_counts: dict[int, int] = {}
-        user_chores: dict[int, dict] = {}
 
+        # Phase 1: plan all assignments (chore → user) without writing to DB yet
+        planned: list[dict] = []
         for chore in chores:
             chore_id = chore["chore_id"]
             eligible = get_eligible_users(chore_id)
             if not eligible:
                 continue
-
             next_user = min(eligible, key=lambda u: seed_counts.get(u["user_id"], 0))
             seed_counts[next_user["user_id"]] = seed_counts.get(next_user["user_id"], 0) + 1
+            planned.append({"chore": dict(chore), "user": dict(next_user)})
 
-            assignment_id = create_assignment(chore_id, next_user["user_id"])
-            row = db.execute(
-                "SELECT date_due FROM active_assignments WHERE assignment_id = ?",
-                (assignment_id,)).fetchone()
+        # Phase 2: stagger due dates within each frequency group
+        from collections import defaultdict
+        by_freq: dict[int, list] = defaultdict(list)
+        for p in planned:
+            by_freq[p["chore"]["frequency_days"]].append(p)
 
+        for freq, group in by_freq.items():
+            n = len(group)
+            for i, p in enumerate(group, start=1):
+                days = max(1, round(freq * i / n))
+                p["date_due"] = today + timedelta(days=days)
+
+        # Phase 3: create assignments and group by user for thread posting
+        user_chores: dict[int, dict] = {}
+        for p in planned:
+            chore = p["chore"]
+            next_user = p["user"]
+            assignment_id = create_assignment(
+                chore["chore_id"], next_user["user_id"],
+                today, date_due=p["date_due"],
+            )
             uid = next_user["user_id"]
             if uid not in user_chores:
-                user_chores[uid] = {"user": dict(next_user), "chores": []}
+                user_chores[uid] = {"user": next_user, "chores": []}
             user_chores[uid]["chores"].append({
                 "assignment_id": assignment_id,
                 "chore_name": chore["chore_name"],
                 "description": chore["description"],
                 "frequency_days": chore["frequency_days"],
-                "date_due": row["date_due"] if row else "—",
+                "date_due": p["date_due"].isoformat(),
             })
 
         if channel:

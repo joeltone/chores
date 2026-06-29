@@ -33,11 +33,12 @@ def get_next_user(chore_id: int, last_user_id: Optional[int]) -> sqlite3.Row:
     return eligible[(idx + 1) % len(ids)]
 
 
-def create_assignment(chore_id: int, user_id: int, today: Optional[date] = None) -> int:
+def create_assignment(chore_id: int, user_id: int, today: Optional[date] = None,
+                      date_due: Optional[date] = None) -> int:
     db = get_db()
     if today is None:
         today = date.today()
-    due = today + timedelta(days=1)
+    due = date_due if date_due is not None else today + timedelta(days=1)
 
     cur = db.execute("""
         INSERT INTO active_assignments
