@@ -259,6 +259,44 @@ class ChoresCog(commands.Cog):
                               color=discord.Color.orange())
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @chore_group.command(name="export", description="Export a person's chore schedule as an .ics calendar file")
+    @app_commands.describe(member="Who to export (defaults to you)")
+    async def chore_export(self, interaction: discord.Interaction,
+                           member: discord.Member = None):
+        target = member or interaction.user
+        log_command(str(interaction.user.id), interaction.user.display_name,
+                    "/chore export", {"member": str(target.id)})
+
+        db = get_db()
+        user = db.execute(
+            "SELECT user_id, display_name FROM users WHERE discord_id = ? AND is_removed = 0",
+            (str(target.id),)).fetchone()
+
+        if not user:
+            await interaction.response.send_message(
+                f"{target.display_name} is not in the rotation.", ephemeral=True)
+            return
+
+        rows = db.execute("""
+            SELECT c.chore_name, c.description, a.date_due, a.assignment_id
+            FROM active_assignments a
+            JOIN chores c ON c.chore_id = a.chore_id
+            WHERE a.assigned_user_id = ? AND a.is_completed = 0
+            ORDER BY a.date_due
+        """, (user["user_id"],)).fetchall()
+
+        if not rows:
+            await interaction.response.send_message(
+                f"{target.display_name} has no pending chores.", ephemeral=True)
+            return
+
+        ics = _build_ics(rows, user["display_name"])
+        filename = f"{target.display_name.replace(' ', '_')}_chores.ics"
+        file = discord.File(fp=__import__("io").BytesIO(ics.encode()), filename=filename)
+        await interaction.response.send_message(
+            f"📅 Chore schedule for **{target.display_name}** ({len(rows)} task(s))",
+            file=file, ephemeral=True)
+
     @chore_group.command(name="upcoming", description="Show next 7 days of scheduled assignments")
     async def chore_upcoming(self, interaction: discord.Interaction):
         log_command(str(interaction.user.id), interaction.user.display_name, "/chore upcoming")
@@ -374,6 +412,37 @@ class ChoresCog(commands.Cog):
             for d in sorted(user_chores.values(), key=lambda x: x["user"]["rotation_order"])
         )
         await interaction.followup.send(f"Seeded {total} chore(s). ({summary})")
+
+
+def _build_ics(rows, display_name: str) -> str:
+    from datetime import datetime, timezone, timedelta as td
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Chore Bot//Chore Schedule//EN",
+        "CALSCALE:GREGORIAN",
+    ]
+    now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    for row in rows:
+        due = date.fromisoformat(row["date_due"])
+        end = due + timedelta(days=1)
+        dtstart = due.strftime("%Y%m%d")
+        dtend = end.strftime("%Y%m%d")
+        uid = f"assignment-{row['assignment_id']}@chore-bot"
+        summary = row["chore_name"].replace(",", "\\,").replace(";", "\\;")
+        desc = (row["description"] or "").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTAMP:{now}",
+            f"DTSTART;VALUE=DATE:{dtstart}",
+            f"DTEND;VALUE=DATE:{dtend}",
+            f"SUMMARY:{summary}",
+            f"DESCRIPTION:Assigned to {display_name}.{' ' + desc if desc else ''}",
+            "END:VEVENT",
+        ]
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(lines) + "\r\n"
 
 
 async def setup(bot: commands.Bot):
