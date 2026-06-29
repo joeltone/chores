@@ -62,6 +62,88 @@ class ChoresCog(commands.Cog):
         db.commit()
         await interaction.response.send_message(f"Chore **{chore_name}** deactivated.")
 
+    @chore_group.command(name="reassign", description="[Admin] Reassign an open chore to the next person in rotation")
+    @app_commands.describe(chore_name="Name of the chore to reassign")
+    async def chore_reassign(self, interaction: discord.Interaction, chore_name: str):
+        if not _is_admin(interaction):
+            await interaction.response.send_message("Admin only.", ephemeral=True)
+            return
+
+        log_command(str(interaction.user.id), interaction.user.display_name,
+                    "/chore reassign", {"chore_name": chore_name})
+
+        db = get_db()
+        chore = db.execute(
+            "SELECT chore_id FROM chores WHERE chore_name = ? AND is_active = 1",
+            (chore_name,)).fetchone()
+
+        if not chore:
+            await interaction.response.send_message(
+                f"No active chore named **{chore_name}**.", ephemeral=True)
+            return
+
+        assignment = db.execute("""
+            SELECT a.assignment_id, a.assigned_user_id, u.display_name
+            FROM active_assignments a
+            JOIN users u ON u.user_id = a.assigned_user_id
+            WHERE a.chore_id = ? AND a.is_completed = 0
+            ORDER BY a.assignment_id DESC
+            LIMIT 1
+        """, (chore["chore_id"],)).fetchone()
+
+        if not assignment:
+            await interaction.response.send_message(
+                f"No open assignment found for **{chore_name}**.", ephemeral=True)
+            return
+
+        from rotation import get_next_user, create_assignment
+        try:
+            next_user = get_next_user(chore["chore_id"], assignment["assigned_user_id"])
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+
+        # Close the old assignment
+        db.execute("""
+            UPDATE active_assignments SET is_completed = 1, is_escalated = 0
+            WHERE assignment_id = ?
+        """, (assignment["assignment_id"],))
+        db.execute("""
+            INSERT INTO assignment_audit
+                (assignment_id, chore_id, user_id, event_type, event_time, notes)
+            VALUES (?, ?, ?, 'reassigned', datetime('now'), ?)
+        """, (assignment["assignment_id"], chore["chore_id"],
+              assignment["assigned_user_id"],
+              f"manually reassigned to {next_user['display_name']}"))
+        db.commit()
+
+        new_assignment_id = create_assignment(chore["chore_id"], next_user["user_id"])
+
+        # Post to channel
+        await interaction.response.defer()
+        channel_id = int(os.environ["DISCORD_CHANNEL_ID"])
+        channel = self.bot.get_channel(channel_id)
+        if channel:
+            row = db.execute(
+                "SELECT date_due FROM active_assignments WHERE assignment_id = ?",
+                (new_assignment_id,)).fetchone()
+            chore_row = db.execute(
+                "SELECT chore_name, description, frequency_days FROM chores WHERE chore_id = ?",
+                (chore["chore_id"],)).fetchone()
+            embed = build_assignment_embed(
+                chore_row["chore_name"], chore_row["description"],
+                next_user["discord_id"], row["date_due"], chore_row["frequency_days"],
+            )
+            view = ChoreCompleteView(assignment_id=new_assignment_id)
+            msg = await channel.send(embed=embed, view=view)
+            db.execute("UPDATE active_assignments SET discord_message_id = ? WHERE assignment_id = ?",
+                       (str(msg.id), new_assignment_id))
+            db.commit()
+
+        await interaction.followup.send(
+            f"**{chore_name}** reassigned from **{assignment['display_name']}** "
+            f"to **{next_user['display_name']}**.", ephemeral=True)
+
     @chore_group.command(name="rename", description="Rename a chore")
     @app_commands.describe(old_name="Current chore name", new_name="New chore name")
     async def chore_rename(self, interaction: discord.Interaction,
