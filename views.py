@@ -67,6 +67,40 @@ class ChoreCompleteView(discord.ui.View):
             f"Marked **{row['chore_name']}** as complete. Nice work!", ephemeral=True)
 
 
+async def post_chores_thread(
+    channel: discord.TextChannel,
+    discord_id: str,
+    display_name: str,
+    chores: list[dict],
+    db,
+) -> None:
+    """Post a per-user thread in the channel with one embed per chore."""
+    from datetime import date as _date
+    today = _date.today().strftime("%Y-%m-%d")
+    n = len(chores)
+
+    starter = await channel.send(
+        f"🧹 **{display_name}** has {n} chore{'s' if n != 1 else ''} for {today}"
+    )
+    thread = await starter.create_thread(
+        name=f"{display_name} – {today}",
+        auto_archive_duration=4320,  # 3 days
+    )
+
+    for c in chores:
+        embed = build_assignment_embed(
+            c["chore_name"], c.get("description") or "",
+            discord_id, c["date_due"], c["frequency_days"],
+        )
+        view = ChoreCompleteView(assignment_id=c["assignment_id"])
+        msg = await thread.send(embed=embed, view=view)
+        db.execute(
+            "UPDATE active_assignments SET discord_message_id = ? WHERE assignment_id = ?",
+            (str(msg.id), c["assignment_id"]),
+        )
+    db.commit()
+
+
 def build_assignment_embed(chore_name: str, description: str,
                             discord_id: str, date_due: str,
                             frequency_days: int) -> discord.Embed:

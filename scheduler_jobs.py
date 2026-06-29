@@ -17,11 +17,11 @@ def set_bot(bot: discord.Client) -> None:
 
 
 async def run_daily_assignments() -> None:
+    """Create new assignments for chores due today, grouped into per-user threads."""
     bot = _bot
-    """Create new assignments for chores due today."""
     from db import get_db
     from rotation import get_next_user, create_assignment
-    from views import ChoreCompleteView, build_assignment_embed
+    from views import post_chores_thread
 
     db = get_db()
     today = date.today()
@@ -41,10 +41,12 @@ async def run_daily_assignments() -> None:
         GROUP BY c.chore_id
     """).fetchall()
 
+    # Collect assignments grouped by user before posting
+    user_chores: dict[int, dict] = {}
+
     for chore in chores:
         chore_id = chore["chore_id"]
 
-        # Check if there's an open escalated assignment — skip new cycle
         escalated = db.execute("""
             SELECT 1 FROM active_assignments
             WHERE chore_id = ? AND is_completed = 0 AND is_escalated = 1
@@ -56,8 +58,7 @@ async def run_daily_assignments() -> None:
         last_date_str = chore["last_assigned_date"]
         if last_date_str:
             last_date = date.fromisoformat(last_date_str)
-            days_since = (today - last_date).days
-            if days_since < chore["frequency_days"]:
+            if (today - last_date).days < chore["frequency_days"]:
                 continue
 
         try:
@@ -67,28 +68,32 @@ async def run_daily_assignments() -> None:
             continue
 
         assignment_id = create_assignment(chore_id, next_user["user_id"], today)
-
-        due_date = (today.replace(day=today.day + 1)
-                    if today.day < 28 else date(today.year, today.month + 1, 1))
-        # Simpler: already computed in create_assignment; fetch it
         row = db.execute(
             "SELECT date_due FROM active_assignments WHERE assignment_id = ?",
             (assignment_id,)).fetchone()
-        date_due = row["date_due"] if row else str(today)
 
-        embed = build_assignment_embed(
-            chore["chore_name"], chore["description"],
-            next_user["discord_id"], date_due, chore["frequency_days"]
+        uid = next_user["user_id"]
+        if uid not in user_chores:
+            user_chores[uid] = {"user": dict(next_user), "chores": []}
+        user_chores[uid]["chores"].append({
+            "assignment_id": assignment_id,
+            "chore_name": chore["chore_name"],
+            "description": chore["description"],
+            "frequency_days": chore["frequency_days"],
+            "date_due": row["date_due"] if row else str(today),
+        })
+
+    # Post one thread per user
+    for uid, data in user_chores.items():
+        await post_chores_thread(
+            channel,
+            data["user"]["discord_id"],
+            data["user"]["display_name"],
+            data["chores"],
+            db,
         )
-        view = ChoreCompleteView(assignment_id=assignment_id)
-        msg = await channel.send(embed=embed, view=view)
-
-        db.execute("UPDATE active_assignments SET discord_message_id = ? WHERE assignment_id = ?",
-                   (str(msg.id), assignment_id))
-        db.commit()
-
-        log.info("Assigned chore %s to %s (assignment %s)",
-                 chore["chore_name"], next_user["display_name"], assignment_id)
+        log.info("Posted thread for %s with %d chore(s)",
+                 data["user"]["display_name"], len(data["chores"]))
 
 
 async def run_escalation_check() -> None:

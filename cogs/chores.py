@@ -7,7 +7,7 @@ from discord.ext import commands
 
 from db import get_db
 from rotation import get_next_user, create_assignment, log_command
-from views import ChoreCompleteView, build_assignment_embed
+from views import ChoreCompleteView, build_assignment_embed, post_chores_thread
 
 
 def _is_admin(interaction: discord.Interaction) -> bool:
@@ -173,6 +173,55 @@ class ChoresCog(commands.Cog):
                               color=discord.Color.green())
         await interaction.response.send_message(embed=embed)
 
+    @chore_group.command(name="matrix", description="Show which chores each user is in the rotation for")
+    async def chore_matrix(self, interaction: discord.Interaction):
+        log_command(str(interaction.user.id), interaction.user.display_name, "/chore matrix")
+
+        db = get_db()
+        users = db.execute("""
+            SELECT user_id, discord_id, display_name, rotation_order, is_active
+            FROM users WHERE is_removed = 0
+            ORDER BY rotation_order
+        """).fetchall()
+
+        chores = db.execute("""
+            SELECT chore_id, chore_name FROM chores WHERE is_active = 1 ORDER BY chore_name
+        """).fetchall()
+
+        if not users:
+            await interaction.response.send_message("No users in the rotation.", ephemeral=True)
+            return
+        if not chores:
+            await interaction.response.send_message("No active chores.", ephemeral=True)
+            return
+
+        total = len(chores)
+        embed = discord.Embed(title="🗂️ Chore Matrix", color=discord.Color.blurple())
+
+        for u in users:
+            excluded_ids = {
+                r["chore_id"] for r in db.execute(
+                    "SELECT chore_id FROM chore_exclusions WHERE user_id = ?",
+                    (u["user_id"],)
+                ).fetchall()
+            }
+            excluded_names = [c["chore_name"] for c in chores if c["chore_id"] in excluded_ids]
+            eligible_count = total - len(excluded_names)
+            status = "⏸ " if not u["is_active"] else ""
+
+            if excluded_names:
+                exclusion_str = "\n*Excluded: " + ", ".join(excluded_names) + "*"
+            else:
+                exclusion_str = ""
+
+            embed.add_field(
+                name=f"{status}{u['display_name']} ({eligible_count}/{total} chores)",
+                value=f"Position {u['rotation_order']}{exclusion_str}" or "​",
+                inline=False,
+            )
+
+        await interaction.response.send_message(embed=embed)
+
     @chore_group.command(name="mine", description="Show your pending assignments")
     async def chore_mine(self, interaction: discord.Interaction):
         log_command(str(interaction.user.id), interaction.user.display_name, "/chore mine")
@@ -260,39 +309,53 @@ class ChoresCog(commands.Cog):
 
         channel_id = int(os.environ["DISCORD_CHANNEL_ID"])
         channel = self.bot.get_channel(channel_id)
-        count = 0
+
+        from rotation import get_eligible_users
+        from views import post_chores_thread
+        seed_counts: dict[int, int] = {}
+        user_chores: dict[int, dict] = {}
 
         for chore in chores:
             chore_id = chore["chore_id"]
-            try:
-                next_user = get_next_user(chore_id, chore["last_assigned_user_id"])
-            except ValueError:
+            eligible = get_eligible_users(chore_id)
+            if not eligible:
                 continue
 
-            assignment_id = create_assignment(chore_id, next_user["user_id"])
+            next_user = min(eligible, key=lambda u: seed_counts.get(u["user_id"], 0))
+            seed_counts[next_user["user_id"]] = seed_counts.get(next_user["user_id"], 0) + 1
 
+            assignment_id = create_assignment(chore_id, next_user["user_id"])
             row = db.execute(
                 "SELECT date_due FROM active_assignments WHERE assignment_id = ?",
                 (assignment_id,)).fetchone()
 
-            if channel:
-                embed = build_assignment_embed(
-                    chore["chore_name"], chore["description"],
-                    next_user["discord_id"],
-                    row["date_due"] if row else "—",
-                    chore["frequency_days"],
+            uid = next_user["user_id"]
+            if uid not in user_chores:
+                user_chores[uid] = {"user": dict(next_user), "chores": []}
+            user_chores[uid]["chores"].append({
+                "assignment_id": assignment_id,
+                "chore_name": chore["chore_name"],
+                "description": chore["description"],
+                "frequency_days": chore["frequency_days"],
+                "date_due": row["date_due"] if row else "—",
+            })
+
+        if channel:
+            for uid, data in user_chores.items():
+                await post_chores_thread(
+                    channel,
+                    data["user"]["discord_id"],
+                    data["user"]["display_name"],
+                    data["chores"],
+                    db,
                 )
-                view = ChoreCompleteView(assignment_id=assignment_id)
-                msg = await channel.send(embed=embed, view=view)
-                db.execute("""
-                    UPDATE active_assignments SET discord_message_id = ?
-                    WHERE assignment_id = ?
-                """, (str(msg.id), assignment_id))
-                db.commit()
 
-            count += 1
-
-        await interaction.followup.send(f"Seeded {count} chore assignment(s).")
+        total = sum(len(d["chores"]) for d in user_chores.values())
+        summary = ", ".join(
+            f"{d['user']['display_name']}: {len(d['chores'])}"
+            for d in sorted(user_chores.values(), key=lambda x: x["user"]["rotation_order"])
+        )
+        await interaction.followup.send(f"Seeded {total} chore(s). ({summary})")
 
 
 async def setup(bot: commands.Bot):
