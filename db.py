@@ -1,3 +1,4 @@
+import secrets
 import sqlite3
 from pathlib import Path
 import os
@@ -84,3 +85,25 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         );
     """)
     conn.commit()
+    _migrate(conn)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    # Add calendar_token column if this is an existing database
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN calendar_token TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Generate tokens for any users that don't have one
+    rows = conn.execute(
+        "SELECT user_id FROM users WHERE calendar_token IS NULL"
+    ).fetchall()
+    for row in rows:
+        conn.execute(
+            "UPDATE users SET calendar_token = ? WHERE user_id = ?",
+            (secrets.token_urlsafe(32), row[0]),
+        )
+    if rows:
+        conn.commit()

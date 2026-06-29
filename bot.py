@@ -98,6 +98,11 @@ async def main():
             await bot.load_extension(cog)
             log.info("Loaded cog: %s", cog)
 
+        # Start calendar server in the same event loop
+        import cal_server
+        cal_port = int(os.getenv("CAL_PORT", "8080"))
+        await cal_server.start(host="127.0.0.1", port=cal_port)
+
         token = os.environ["DISCORD_BOT_TOKEN"]
         await bot.start(token)
 

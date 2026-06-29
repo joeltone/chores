@@ -415,34 +415,8 @@ class ChoresCog(commands.Cog):
 
 
 def _build_ics(rows, display_name: str) -> str:
-    from datetime import datetime, timezone, timedelta as td
-    lines = [
-        "BEGIN:VCALENDAR",
-        "VERSION:2.0",
-        "PRODID:-//Chore Bot//Chore Schedule//EN",
-        "CALSCALE:GREGORIAN",
-    ]
-    now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    for row in rows:
-        due = date.fromisoformat(row["date_due"])
-        end = due + timedelta(days=1)
-        dtstart = due.strftime("%Y%m%d")
-        dtend = end.strftime("%Y%m%d")
-        uid = f"assignment-{row['assignment_id']}@chore-bot"
-        summary = row["chore_name"].replace(",", "\\,").replace(";", "\\;")
-        desc = (row["description"] or "").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
-        lines += [
-            "BEGIN:VEVENT",
-            f"UID:{uid}",
-            f"DTSTAMP:{now}",
-            f"DTSTART;VALUE=DATE:{dtstart}",
-            f"DTEND;VALUE=DATE:{dtend}",
-            f"SUMMARY:{summary}",
-            f"DESCRIPTION:Assigned to {display_name}.{' ' + desc if desc else ''}",
-            "END:VEVENT",
-        ]
-    lines.append("END:VCALENDAR")
-    return "\r\n".join(lines) + "\r\n"
+    from ical import build_ics
+    return build_ics(rows, display_name)
 
 
 async def setup(bot: commands.Bot):

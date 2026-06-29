@@ -1,0 +1,14 @@
+[Unit]
+Description=Cloudflare Tunnel for Chore Bot Calendar
+After=network.target chore-bot.service
+Requires=chore-bot.service
+
+[Service]
+Type=simple
+User=joel
+ExecStart=/usr/bin/cloudflared tunnel --config /opt/chore-bot/cloudflared.yml run
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

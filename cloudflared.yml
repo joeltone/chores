@@ -1,0 +1,41 @@
+# Cloudflare Tunnel configuration
+# Place at /opt/chore-bot/cloudflared.yml
+#
+# Setup steps:
+#   1. Install cloudflared:
+#        curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+#        sudo dpkg -i cloudflared.deb
+#
+#   2. Authenticate (opens browser):
+#        cloudflared tunnel login
+#
+#   3. Create the tunnel:
+#        cloudflared tunnel create chore-cal
+#        # Note the tunnel UUID printed — set it as `tunnel:` below
+#
+#   4. Create a DNS CNAME (replace with your domain and UUID):
+#        cloudflared tunnel route dns d4642efb-99b6-4313-9641-073b8bebb1c1 cal.jjtone.com
+#
+#   5. Copy credentials file to /opt/chore-bot/:
+#        sudo cp /home/joel/.cloudflared/d4642efb-99b6-4313-9641-073b8bebb1c1.json /opt/chore-bot/
+#        sudo chown joel:joel /opt/chore-bot/d4642efb-99b6-4313-9641-073b8bebb1c1.json
+#        sudo chmod 600 /opt/chore-bot/d4642efb-99b6-4313-9641-073b8bebb1c1.json
+#
+#   6. Set CAL_BASE_URL=https://cal.jjtone.com in /opt/chore-bot/.env
+#
+#   7. Enable the systemd service:
+#        sudo cp /opt/chore-bot/chore-cloudflared.service /etc/systemd/system/
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable --now chore-cloudflared
+
+tunnel: d4642efb-99b6-4313-9641-073b8bebb1c1
+credentials-file: /opt/chore-bot/d4642efb-99b6-4313-9641-073b8bebb1c1.json
+
+ingress:
+  # Only expose the calendar endpoint — nothing else passes through
+  - hostname: cal.jjtone.com
+    path: ^/cal/[A-Za-z0-9_-]{43}\.ics$
+    service: http://127.0.0.1:8080
+
+  # Catch-all: reject everything else at the tunnel level
+  - service: http_status:404

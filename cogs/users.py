@@ -158,6 +158,65 @@ class UsersCog(commands.Cog):
             f"**{member.display_name}** permanently removed. "
             f"Reassigned {len(reassignments)} open task(s).")
 
+    @user_group.command(name="calendar", description="Get your personal calendar subscription URL")
+    async def user_calendar(self, interaction: discord.Interaction):
+        log_command(str(interaction.user.id), interaction.user.display_name, "/user calendar")
+
+        db = get_db()
+        row = db.execute(
+            "SELECT calendar_token FROM users WHERE discord_id = ? AND is_removed = 0",
+            (str(interaction.user.id),)
+        ).fetchone()
+
+        if not row:
+            await interaction.response.send_message(
+                "You're not in the rotation.", ephemeral=True)
+            return
+
+        base_url = os.environ.get("CAL_BASE_URL", "").rstrip("/")
+        if not base_url:
+            await interaction.response.send_message(
+                "Calendar URL not configured (CAL_BASE_URL missing in .env).", ephemeral=True)
+            return
+
+        url = f"{base_url}/cal/{row['calendar_token']}.ics"
+        await interaction.response.send_message(
+            f"Your personal calendar URL (keep this private):\n```\n{url}\n```\n"
+            "Subscribe in Google Calendar: **Settings → Add calendar → From URL**.",
+            ephemeral=True)
+
+    @user_group.command(name="rotate-token", description="[Admin] Rotate a user's calendar token")
+    @app_commands.describe(member="The user whose token to rotate")
+    async def user_rotate_token(self, interaction: discord.Interaction, member: discord.Member):
+        if not _is_admin(interaction):
+            await interaction.response.send_message("Admin only.", ephemeral=True)
+            return
+
+        log_command(str(interaction.user.id), interaction.user.display_name,
+                    "/user rotate-token", {"member": str(member.id)})
+
+        import secrets
+        db = get_db()
+        row = db.execute(
+            "SELECT user_id FROM users WHERE discord_id = ? AND is_removed = 0",
+            (str(member.id),)
+        ).fetchone()
+
+        if not row:
+            await interaction.response.send_message(
+                f"{member.display_name} is not in the rotation.", ephemeral=True)
+            return
+
+        new_token = secrets.token_urlsafe(32)
+        db.execute("UPDATE users SET calendar_token = ? WHERE user_id = ?",
+                   (new_token, row["user_id"]))
+        db.commit()
+
+        await interaction.response.send_message(
+            f"Calendar token rotated for **{member.display_name}**. "
+            f"Their old URL is now invalid — they should run `/user calendar` to get the new one.",
+            ephemeral=True)
+
     @user_group.command(name="list", description="List all active users and their rotation order")
     async def user_list(self, interaction: discord.Interaction):
         log_command(str(interaction.user.id), interaction.user.display_name, "/user list")
