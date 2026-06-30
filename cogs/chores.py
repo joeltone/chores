@@ -33,6 +33,16 @@ class ChoresCog(commands.Cog):
                     "/chore add", {"name": name, "frequency_days": frequency_days})
 
         db = get_db()
+
+        existing = db.execute(
+            "SELECT 1 FROM chores WHERE is_active = 1 AND LOWER(chore_name) = LOWER(?)",
+            (name,)
+        ).fetchone()
+        if existing:
+            await interaction.response.send_message(
+                f"A chore named **{name}** already exists.", ephemeral=True)
+            return
+
         db.execute("""
             INSERT INTO chores (chore_name, description, frequency_days, is_active)
             VALUES (?, ?, ?, 1)

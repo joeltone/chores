@@ -47,12 +47,12 @@ async def run_daily_assignments() -> None:
     for chore in chores:
         chore_id = chore["chore_id"]
 
-        escalated = db.execute("""
+        open_assignment = db.execute("""
             SELECT 1 FROM active_assignments
-            WHERE chore_id = ? AND is_completed = 0 AND is_escalated = 1
+            WHERE chore_id = ? AND is_completed = 0
         """, (chore_id,)).fetchone()
-        if escalated:
-            log.info("Skipping chore %s — has open escalated assignment", chore_id)
+        if open_assignment:
+            log.info("Skipping chore %s — has open incomplete assignment", chore_id)
             continue
 
         last_date_str = chore["last_assigned_date"]
@@ -94,6 +94,44 @@ async def run_daily_assignments() -> None:
         )
         log.info("Posted thread for %s with %d chore(s)",
                  data["user"]["display_name"], len(data["chores"]))
+
+
+async def run_due_today_reminder() -> None:
+    """Remind users about open assignments due today (no new assignment yet, not overdue)."""
+    bot = _bot
+    from db import get_db
+
+    db = get_db()
+    today = date.today().isoformat()
+    channel_id = int(os.environ["DISCORD_CHANNEL_ID"])
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        log.error("Could not find channel %s", channel_id)
+        return
+
+    due_today = db.execute("""
+        SELECT c.chore_name, u.discord_id, u.display_name
+        FROM active_assignments a
+        JOIN chores c ON c.chore_id = a.chore_id
+        JOIN users u ON u.user_id = a.assigned_user_id
+        WHERE a.is_completed = 0 AND a.date_due = ?
+        ORDER BY u.display_name, c.chore_name
+    """, (today,)).fetchall()
+
+    user_chores: dict[str, dict] = {}
+    for row in due_today:
+        discord_id = row["discord_id"]
+        if discord_id not in user_chores:
+            user_chores[discord_id] = {"display_name": row["display_name"], "chores": []}
+        user_chores[discord_id]["chores"].append(row["chore_name"])
+
+    for discord_id, data in user_chores.items():
+        chore_list = ", ".join(f"**{name}**" for name in data["chores"])
+        await channel.send(
+            f"⏰ <@{discord_id}> reminder — due today ({today}): {chore_list}"
+        )
+        log.info("Sent due-today reminder to %s for %d chore(s)",
+                 data["display_name"], len(data["chores"]))
 
 
 async def run_escalation_check() -> None:
