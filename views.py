@@ -91,6 +91,7 @@ async def post_chores_thread(
         embed = build_assignment_embed(
             c["chore_name"], c.get("description") or "",
             discord_id, c["date_due"], c["frequency_days"],
+            is_reminder=c.get("is_reminder", False),
         )
         view = ChoreCompleteView(assignment_id=c["assignment_id"])
         msg = await thread.send(embed=embed, view=view)
@@ -103,9 +104,11 @@ async def post_chores_thread(
 
 def build_assignment_embed(chore_name: str, description: str,
                             discord_id: str, date_due: str,
-                            frequency_days: int) -> discord.Embed:
+                            frequency_days: int,
+                            is_reminder: bool = False) -> discord.Embed:
+    title = f"🔁 Still Pending: {chore_name}" if is_reminder else f"🧹 Chore Assigned: {chore_name}"
     embed = discord.Embed(
-        title=f"🧹 Chore Assigned: {chore_name}",
+        title=title,
         description=description or "",
         color=discord.Color.blue(),
     )

@@ -66,7 +66,7 @@ async def on_ready():
 
     # Schedule daily jobs (idempotent: replace_existing=True)
     import scheduler_jobs
-    from scheduler_jobs import run_daily_assignments, run_due_today_reminder, run_escalation_check
+    from scheduler_jobs import run_daily_assignments, run_escalation_check
 
     scheduler_jobs.set_bot(bot)
 
@@ -76,14 +76,6 @@ async def on_ready():
         hour=8,
         minute=0,
         id="daily_assignments",
-        replace_existing=True,
-    )
-    scheduler.add_job(
-        run_due_today_reminder,
-        trigger="cron",
-        hour=8,
-        minute=15,
-        id="due_today_reminder",
         replace_existing=True,
     )
     scheduler.add_job(

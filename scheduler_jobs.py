@@ -83,6 +83,38 @@ async def run_daily_assignments() -> None:
             "date_due": row["date_due"] if row else str(today),
         })
 
+    # Merge any open carry-over assignments (created before today) into the per-user lists
+    carry_overs = db.execute("""
+        SELECT a.assignment_id, a.date_due,
+               c.chore_name, c.description, c.frequency_days,
+               u.user_id, u.discord_id, u.display_name
+        FROM active_assignments a
+        JOIN chores c ON c.chore_id = a.chore_id
+        JOIN users u ON u.user_id = a.assigned_user_id
+        WHERE a.is_completed = 0 AND a.date_assigned < ?
+        ORDER BY a.date_due, c.chore_name
+    """, (today.isoformat(),)).fetchall()
+
+    for row in carry_overs:
+        uid = row["user_id"]
+        if uid not in user_chores:
+            user_chores[uid] = {
+                "user": {
+                    "user_id": row["user_id"],
+                    "discord_id": row["discord_id"],
+                    "display_name": row["display_name"],
+                },
+                "chores": [],
+            }
+        user_chores[uid]["chores"].append({
+            "assignment_id": row["assignment_id"],
+            "chore_name": row["chore_name"],
+            "description": row["description"],
+            "frequency_days": row["frequency_days"],
+            "date_due": row["date_due"],
+            "is_reminder": True,
+        })
+
     # Post one thread per user
     for uid, data in user_chores.items():
         await post_chores_thread(
@@ -94,44 +126,6 @@ async def run_daily_assignments() -> None:
         )
         log.info("Posted thread for %s with %d chore(s)",
                  data["user"]["display_name"], len(data["chores"]))
-
-
-async def run_due_today_reminder() -> None:
-    """Remind users about open assignments due today (no new assignment yet, not overdue)."""
-    bot = _bot
-    from db import get_db
-
-    db = get_db()
-    today = date.today().isoformat()
-    channel_id = int(os.environ["DISCORD_CHANNEL_ID"])
-    channel = bot.get_channel(channel_id)
-    if channel is None:
-        log.error("Could not find channel %s", channel_id)
-        return
-
-    due_today = db.execute("""
-        SELECT c.chore_name, u.discord_id, u.display_name
-        FROM active_assignments a
-        JOIN chores c ON c.chore_id = a.chore_id
-        JOIN users u ON u.user_id = a.assigned_user_id
-        WHERE a.is_completed = 0 AND a.date_due = ?
-        ORDER BY u.display_name, c.chore_name
-    """, (today,)).fetchall()
-
-    user_chores: dict[str, dict] = {}
-    for row in due_today:
-        discord_id = row["discord_id"]
-        if discord_id not in user_chores:
-            user_chores[discord_id] = {"display_name": row["display_name"], "chores": []}
-        user_chores[discord_id]["chores"].append(row["chore_name"])
-
-    for discord_id, data in user_chores.items():
-        chore_list = ", ".join(f"**{name}**" for name in data["chores"])
-        await channel.send(
-            f"⏰ <@{discord_id}> reminder — due today ({today}): {chore_list}"
-        )
-        log.info("Sent due-today reminder to %s for %d chore(s)",
-                 data["display_name"], len(data["chores"]))
 
 
 async def run_escalation_check() -> None:
