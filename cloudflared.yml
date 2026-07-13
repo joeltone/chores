@@ -14,26 +14,26 @@
 #        # Note the tunnel UUID printed — set it as `tunnel:` below
 #
 #   4. Create a DNS CNAME (replace with your domain and UUID):
-#        cloudflared tunnel route dns d4642efb-99b6-4313-9641-073b8bebb1c1 cal.jjtone.com
+#        cloudflared tunnel route dns <TUNNEL_UUID> cal.yourdomain.com
 #
 #   5. Copy credentials file to /opt/chore-bot/:
-#        sudo cp /home/joel/.cloudflared/d4642efb-99b6-4313-9641-073b8bebb1c1.json /opt/chore-bot/
-#        sudo chown joel:joel /opt/chore-bot/d4642efb-99b6-4313-9641-073b8bebb1c1.json
-#        sudo chmod 600 /opt/chore-bot/d4642efb-99b6-4313-9641-073b8bebb1c1.json
+#        sudo cp /home/joel/.cloudflared/<TUNNEL_UUID>.json /opt/chore-bot/
+#        sudo chown joel:joel /opt/chore-bot/<TUNNEL_UUID>.json
+#        sudo chmod 600 /opt/chore-bot/<TUNNEL_UUID>.json
 #
-#   6. Set CAL_BASE_URL=https://cal.jjtone.com in /opt/chore-bot/.env
+#   6. Set CAL_BASE_URL=https://cal.yourdomain.com in /opt/chore-bot/.env
 #
 #   7. Enable the systemd service:
 #        sudo cp /opt/chore-bot/chore-cloudflared.service /etc/systemd/system/
 #        sudo systemctl daemon-reload
 #        sudo systemctl enable --now chore-cloudflared
 
-tunnel: d4642efb-99b6-4313-9641-073b8bebb1c1
-credentials-file: /opt/chore-bot/d4642efb-99b6-4313-9641-073b8bebb1c1.json
+tunnel: <TUNNEL_UUID>
+credentials-file: /opt/chore-bot/<TUNNEL_UUID>.json
 
 ingress:
   # Only expose the calendar endpoint — nothing else passes through
-  - hostname: cal.jjtone.com
+  - hostname: cal.yourdomain.com
     path: ^/cal/[A-Za-z0-9_-]{43}\.ics$
     service: http://127.0.0.1:8080
 
