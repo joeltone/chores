@@ -15,7 +15,7 @@ Managed entirely through Discord slash commands — no web dashboard required.
 - Rotatable per-user calendar tokens for revoking a compromised link
 - Audit log of assignments and command usage
 
-See [GUIDE.md](GUIDE.md) for the full command reference and day-to-day usage.
+See [GUIDE.md](GUIDE.md) for the full command reference and day-to-day usage, or [HOUSE_GUIDE.md](HOUSE_GUIDE.md) for a plain-language walkthrough written for non-technical household members.
 
 ## Stack
 

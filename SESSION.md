@@ -22,6 +22,10 @@ A self-hosted household chore rotation bot, managed entirely through Discord sla
 - Persistent Discord button views (survive bot restarts)
 - All slash commands: `/user`, `/chore`, `/admin`
 
+### Documentation
+- Added `HOUSE_GUIDE.md` — a plain-language walkthrough of the rotation, daily automation, and every command, written for non-technical household members (as opposed to `GUIDE.md`, which is the terse admin/dev command reference)
+- Linked it from `README.md` alongside `GUIDE.md`
+
 ### Bugs Fixed
 - APScheduler pickle error — Discord bot object isn't serialisable; fixed by storing bot reference in module scope instead of passing as job argument
 - `DB_PATH` pointed to `/opt/chore-bot` before directory existed — moved databases to `data/` subfolder
