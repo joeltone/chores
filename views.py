@@ -1,6 +1,8 @@
 import discord
 from datetime import datetime, timezone
 
+from clock import today as _today
+
 
 class ChoreCompleteView(discord.ui.View):
     def __init__(self, assignment_id: int):
@@ -75,8 +77,7 @@ async def post_chores_thread(
     db,
 ) -> None:
     """Post a per-user thread in the channel with one embed per chore."""
-    from datetime import date as _date
-    today = _date.today().strftime("%Y-%m-%d")
+    today = _today().strftime("%Y-%m-%d")
     n = len(chores)
 
     starter = await channel.send(

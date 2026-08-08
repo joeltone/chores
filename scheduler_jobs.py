@@ -6,14 +6,107 @@ from datetime import date, datetime, timezone
 
 import discord
 
+from clock import TZ as SCHEDULER_TZ, today as _today
+
 log = logging.getLogger(__name__)
 
 _bot: discord.Client | None = None
+_scheduler = None
 
 
 def set_bot(bot: discord.Client) -> None:
     global _bot
     _bot = bot
+
+
+def set_scheduler(scheduler) -> None:
+    global _scheduler
+    _scheduler = scheduler
+
+
+def schedule_chore_reminder(user_id: int, discord_id: str, display_name: str,
+                             run_at: datetime) -> None:
+    """Schedule (or replace) a one-time reminder for a user, firing at run_at (local time).
+
+    Setting a new reminder for the same user replaces any pending one.
+    """
+    if _scheduler is None:
+        raise RuntimeError("Scheduler not initialized")
+    _scheduler.add_job(
+        run_chore_reminder,
+        trigger="date",
+        run_date=run_at,
+        args=[user_id, discord_id, display_name],
+        id=f"chore_reminder_{discord_id}",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+
+async def run_chore_reminder(user_id: int, discord_id: str, display_name: str) -> None:
+    """Send a one-time reminder of a user's active chores.
+
+    Prefers posting in that day's per-user chore thread; falls back to a DM,
+    and then a channel ping if the DM can't be delivered. Sends nothing if the
+    user has no pending chores left by the time this fires.
+    """
+    bot = _bot
+    from db import get_db
+
+    db = get_db()
+    rows = db.execute("""
+        SELECT c.chore_name, a.date_due, a.is_escalated
+        FROM active_assignments a
+        JOIN chores c ON c.chore_id = a.chore_id
+        WHERE a.assigned_user_id = ? AND a.is_completed = 0
+        ORDER BY a.date_due
+    """, (user_id,)).fetchall()
+
+    if not rows:
+        log.info("Skipping chore reminder for %s — no pending chores", display_name)
+        return
+
+    lines = []
+    for r in rows:
+        flag = " ⚠️ OVERDUE" if r["is_escalated"] else ""
+        lines.append(f"• **{r['chore_name']}** — due {r['date_due']}{flag}")
+    message = f"⏰ <@{discord_id}> reminder — your active chores:\n" + "\n".join(lines)
+
+    channel_id = int(os.environ["DISCORD_CHANNEL_ID"])
+    channel = bot.get_channel(channel_id)
+
+    thread = None
+    if channel:
+        today_name = f"{display_name} – {_today().strftime('%Y-%m-%d')}"
+        for t in channel.threads:
+            if t.name == today_name:
+                thread = t
+                break
+        if thread is None:
+            try:
+                async for t in channel.archived_threads(limit=50):
+                    if t.name == today_name:
+                        thread = t
+                        break
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+    if thread:
+        await thread.send(message)
+        log.info("Sent chore reminder for %s in thread %s", display_name, thread.id)
+        return
+
+    try:
+        user = bot.get_user(int(discord_id)) or await bot.fetch_user(int(discord_id))
+        await user.send(message)
+        log.info("Sent chore reminder DM to %s", display_name)
+        return
+    except (discord.Forbidden, discord.HTTPException):
+        log.info("DM failed for %s — falling back to channel", display_name)
+
+    if channel:
+        await channel.send(message)
+        log.info("Sent chore reminder for %s in channel (DM failed)", display_name)
 
 
 async def run_daily_assignments() -> None:
@@ -24,7 +117,7 @@ async def run_daily_assignments() -> None:
     from views import post_chores_thread
 
     db = get_db()
-    today = date.today()
+    today = _today()
     channel_id = int(os.environ["DISCORD_CHANNEL_ID"])
     channel = bot.get_channel(channel_id)
     if channel is None:
@@ -134,7 +227,7 @@ async def run_escalation_check() -> None:
     from db import get_db
 
     db = get_db()
-    today = date.today().isoformat()
+    today = _today().isoformat()
     admin_id = os.environ.get("ADMIN_DISCORD_ID", "")
     channel_id = int(os.environ["DISCORD_CHANNEL_ID"])
     channel = bot.get_channel(channel_id)

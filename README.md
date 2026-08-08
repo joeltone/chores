@@ -9,7 +9,8 @@ Managed entirely through Discord slash commands — no web dashboard required.
 - Rotation engine that assigns chores fairly across active users, with support for per-user exclusions
 - Persistent completion buttons on each assignment (survive bot restarts)
 - Per-user Discord threads bundling all of that person's pending chores
-- Daily automation: new assignments posted at 8:00 AM, overdue chores escalated at 9:00 AM
+- Daily automation: new assignments posted at 8:00 AM, overdue chores escalated at 9:00 AM (Manitoba time — see [Timezone](#timezone))
+- On-demand one-time reminders (`/chore remind-me`) — pick a time later today and the bot pings you then with whatever's still open
 - Pause/reinstate users (e.g. while traveling) with automatic reassignment of their open chores
 - Per-user calendar subscription (`webcal`/`.ics`) showing chores as all-day events, plus one-off `.ics` export
 - Rotatable per-user calendar tokens for revoking a compromised link
@@ -28,9 +29,10 @@ See [GUIDE.md](GUIDE.md) for the full command reference and day-to-day usage, or
 ```
 bot.py               # Entry point: loads cogs, scheduler, calendar server
 cal_server.py        # aiohttp server serving per-user .ics calendar feeds
+clock.py              # App-wide timezone (Manitoba) + now()/today() helpers
 db.py                 # Schema + connection helper
 rotation.py           # Chore assignment/rotation engine
-scheduler_jobs.py     # Daily assignment + escalation jobs
+scheduler_jobs.py     # Daily assignment + escalation jobs + one-time reminders
 ical.py               # iCalendar (.ics) generation
 views.py              # Persistent Discord button components
 cogs/
@@ -64,6 +66,10 @@ python bot.py
 | `CAL_PORT` | Local port for the calendar HTTP server (default `8080`) |
 | `CAL_BASE_URL` | Public base URL for calendar links (your Cloudflare Tunnel hostname) |
 
+### Timezone
+
+All "what day is it" and scheduling logic — due dates, daily thread labels, the 8 AM/9 AM cron jobs, and `/chore remind-me` — reads the current date/time through [clock.py](clock.py), which is hardcoded to `America/Winnipeg` (Manitoba) regardless of the host machine's own system timezone. To run this for a different household, change `TZ` in `clock.py`.
+
 ### Seeding initial data
 
 Either use the slash commands (`/user add`, `/chore add`, `/chore exclude`, `/chore seed` — see [GUIDE.md](GUIDE.md)), or bulk-load with `python seed_chores.py` / `python seed_exclusions.py` if you're migrating a large list.
@@ -85,6 +91,15 @@ sudo systemctl enable --now chore-bot chore-cloudflared chore-backup.timer
 ```
 
 Adjust `WorkingDirectory`/`ExecStart` paths in the `.service` files if your deployment directory differs from `/opt/chore-bot`.
+
+### Updating
+
+`/opt/chore-bot` is a plain file copy, not a git checkout, so there's no `git pull` on the deployment side. After making changes in this repo, copy the changed files over and restart the service:
+
+```bash
+cp cogs/chores.py /opt/chore-bot/cogs/chores.py   # repeat for each changed file
+sudo systemctl restart chore-bot
+```
 
 ### Calendar endpoint security
 

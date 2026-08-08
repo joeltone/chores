@@ -33,12 +33,14 @@ For a chore Cal is excluded from, the bot just skips straight to Morgy.
 
 Two things happen automatically, every day, without anyone lifting a finger:
 
-| Time | What happens |
+| Time (Manitoba) | What happens |
 |---|---|
 | **8:00 AM** | New chores get handed out. Anything due for reassignment is posted to whoever's next, grouped into a thread with their name on it. |
 | **9:00 AM** | Overdue chores are flagged. Anything still unchecked from a previous due date gets marked overdue, and the admin is pinged in the channel. |
 
 If the bot ever restarts — an update, a reboot, whatever — nothing is lost. Every "mark done" button picks up right where it left off.
+
+Want a nudge later today instead of waiting for tomorrow's 8 AM round? Type `/chore remind-me` and give it a time, like `6:30pm`. At that time, the bot will post a reminder with whatever's still open for you — in your thread if you have one going today, otherwise as a DM. If you've already finished everything by then, it just stays quiet.
 
 ## 3. Marking a chore done
 
@@ -95,9 +97,10 @@ Everything is typed straight into Discord as a slash command. Commands marked **
 | `/chore add` | Adds a new chore and how often it repeats. |
 | `/chore remove` | Retires a chore — it stops being assigned. |
 | `/chore rename` | Renames a chore. |
-| `/chore list` | Lists every active chore and who last did it. |
+| `/chore list` | Shows today's chores (with a done/pending icon) plus anything overdue. |
 | `/chore matrix` | Shows who's eligible for what, and any exclusions. |
 | `/chore mine` | Your own pending chores, sent privately. |
+| `/chore remind-me` | Pings you once, later today, with whatever's still open — you pick the time. |
 | `/chore upcoming` | What's due across the house in the next 7 days. |
 | `/chore export` | Downloads a calendar file of someone's chore schedule. |
 | `/chore exclude` | Permanently skips someone for one specific chore. |

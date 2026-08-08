@@ -4,6 +4,7 @@ from typing import Optional
 import json
 
 from db import get_db
+from clock import today as _today
 
 
 def get_eligible_users(chore_id: int) -> list[sqlite3.Row]:
@@ -37,7 +38,7 @@ def create_assignment(chore_id: int, user_id: int, today: Optional[date] = None,
                       date_due: Optional[date] = None) -> int:
     db = get_db()
     if today is None:
-        today = date.today()
+        today = _today()
     due = date_due if date_due is not None else today + timedelta(days=1)
 
     cur = db.execute("""

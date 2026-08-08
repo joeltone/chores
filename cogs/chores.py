@@ -1,10 +1,12 @@
 import os
-from datetime import date, timedelta
+import re
+from datetime import datetime, time as dtime, timedelta
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
+from clock import TZ, today as _today, now as _now
 from db import get_db
 from rotation import get_next_user, create_assignment, log_command
 from views import ChoreCompleteView, build_assignment_embed, post_chores_thread
@@ -12,6 +14,34 @@ from views import ChoreCompleteView, build_assignment_embed, post_chores_thread
 
 def _is_admin(interaction: discord.Interaction) -> bool:
     return str(interaction.user.id) == os.environ.get("ADMIN_DISCORD_ID", "")
+
+
+_TIME_RE = re.compile(r"^(\d{1,2}):?(\d{2})?\s*(am|pm)?$")
+
+
+def _parse_time_str(raw: str) -> dtime:
+    """Parse a user-supplied time like '18:30', '6pm', or '6:30pm'."""
+    s = raw.strip().lower().replace(" ", "")
+    m = _TIME_RE.fullmatch(s)
+    if not m:
+        raise ValueError(f"Couldn't understand time '{raw}'. Try formats like 18:30 or 6:30pm.")
+
+    hour = int(m.group(1))
+    minute = int(m.group(2) or 0)
+    ampm = m.group(3)
+
+    if ampm:
+        if not (1 <= hour <= 12):
+            raise ValueError(f"'{raw}' isn't a valid 12-hour time.")
+        if ampm == "pm" and hour != 12:
+            hour += 12
+        elif ampm == "am" and hour == 12:
+            hour = 0
+
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError(f"'{raw}' isn't a valid time.")
+
+    return dtime(hour=hour, minute=minute)
 
 
 class ChoresCog(commands.Cog):
@@ -237,32 +267,53 @@ class ChoresCog(commands.Cog):
         await interaction.response.send_message(
             f"**{member.display_name}** can now be assigned **{chore_name}**.")
 
-    @chore_group.command(name="list", description="List all active chores")
+    @chore_group.command(name="list", description="Show today's chores and any overdue chores")
     async def chore_list(self, interaction: discord.Interaction):
         log_command(str(interaction.user.id), interaction.user.display_name, "/chore list")
 
         db = get_db()
-        rows = db.execute("""
-            SELECT c.chore_name, c.frequency_days, u.display_name AS assignee
-            FROM chores c
-            LEFT JOIN users u ON u.user_id = c.last_assigned_user_id
-            WHERE c.is_active = 1
-            ORDER BY c.chore_name
-        """).fetchall()
+        today = _today().isoformat()
 
-        if not rows:
-            await interaction.response.send_message("No active chores.", ephemeral=True)
+        today_rows = db.execute("""
+            SELECT c.chore_name, u.display_name, a.is_completed
+            FROM active_assignments a
+            JOIN chores c ON c.chore_id = a.chore_id
+            JOIN users u ON u.user_id = a.assigned_user_id
+            WHERE a.date_due = ?
+            ORDER BY c.chore_name
+        """, (today,)).fetchall()
+
+        overdue_rows = db.execute("""
+            SELECT c.chore_name, u.display_name, a.date_due
+            FROM active_assignments a
+            JOIN chores c ON c.chore_id = a.chore_id
+            JOIN users u ON u.user_id = a.assigned_user_id
+            WHERE a.date_due < ? AND a.is_completed = 0
+            ORDER BY a.date_due, c.chore_name
+        """, (today,)).fetchall()
+
+        if not today_rows and not overdue_rows:
+            await interaction.response.send_message(
+                "No chores due today, and nothing overdue. 🎉")
             return
 
-        lines = []
-        for r in rows:
-            freq = "daily" if r["frequency_days"] == 1 else f"every {r['frequency_days']}d"
-            assignee = r["assignee"] or "unassigned"
-            lines.append(f"**{r['chore_name']}** ({freq}) — last: {assignee}")
+        embed = discord.Embed(title="📋 Today's Chores", color=discord.Color.green())
 
-        embed = discord.Embed(title="📋 Active Chores",
-                              description="\n".join(lines),
-                              color=discord.Color.green())
+        if today_rows:
+            lines = []
+            for r in today_rows:
+                status = "✅" if r["is_completed"] else "🔲"
+                lines.append(f"{status} **{r['chore_name']}** — {r['display_name']}")
+            embed.add_field(name="Today", value="\n".join(lines), inline=False)
+        else:
+            embed.add_field(name="Today", value="Nothing due today.", inline=False)
+
+        if overdue_rows:
+            lines = []
+            for r in overdue_rows:
+                lines.append(f"⚠️ **{r['chore_name']}** — {r['display_name']} (due {r['date_due']})")
+            embed.add_field(name="Overdue", value="\n".join(lines), inline=False)
+
         await interaction.response.send_message(embed=embed)
 
     @chore_group.command(name="matrix", description="Show which chores each user is in the rotation for")
@@ -351,6 +402,44 @@ class ChoresCog(commands.Cog):
                               color=discord.Color.orange())
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @chore_group.command(name="remind-me", description="Get a one-time reminder of your active chores later today")
+    @app_commands.describe(time="When to remind you today, e.g. 6:30pm or 18:30")
+    async def chore_remind_me(self, interaction: discord.Interaction, time: str):
+        log_command(str(interaction.user.id), interaction.user.display_name,
+                    "/chore remind-me", {"time": time})
+
+        db = get_db()
+        user = db.execute(
+            "SELECT user_id, display_name FROM users WHERE discord_id = ? AND is_removed = 0",
+            (str(interaction.user.id),)).fetchone()
+
+        if not user:
+            await interaction.response.send_message(
+                "You're not in the rotation.", ephemeral=True)
+            return
+
+        try:
+            parsed_time = _parse_time_str(time)
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+
+        now = _now()
+        run_at = datetime.combine(now.date(), parsed_time, tzinfo=TZ)
+        if run_at <= now:
+            await interaction.response.send_message(
+                "That time has already passed today (Manitoba time). Pick a later time.",
+                ephemeral=True)
+            return
+
+        import scheduler_jobs
+        scheduler_jobs.schedule_chore_reminder(
+            user["user_id"], str(interaction.user.id), user["display_name"], run_at)
+
+        await interaction.response.send_message(
+            f"⏰ Got it — I'll remind you of your active chores at "
+            f"{run_at.strftime('%-I:%M %p')} Manitoba time today.", ephemeral=True)
+
     @chore_group.command(name="export", description="Export a person's chore schedule as an .ics calendar file")
     @app_commands.describe(member="Who to export (defaults to you)")
     async def chore_export(self, interaction: discord.Interaction,
@@ -394,7 +483,7 @@ class ChoresCog(commands.Cog):
         log_command(str(interaction.user.id), interaction.user.display_name, "/chore upcoming")
 
         db = get_db()
-        today = date.today()
+        today = _today()
         end = today + timedelta(days=7)
 
         rows = db.execute("""
@@ -442,7 +531,7 @@ class ChoresCog(commands.Cog):
 
         from rotation import get_eligible_users
         from views import post_chores_thread
-        today = date.today()
+        today = _today()
         seed_counts: dict[int, int] = {}
 
         # Phase 1: plan all assignments (chore → user) without writing to DB yet
