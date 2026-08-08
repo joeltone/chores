@@ -8,6 +8,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from dotenv import load_dotenv
 
+import scheduler_jobs
+from scheduler_jobs import SCHEDULER_TZ
+
 load_dotenv()
 
 logging.basicConfig(
@@ -30,7 +33,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 db_path = os.getenv("DB_PATH", "data/chores.db")
 _jobs_db = os.path.join(os.path.dirname(db_path), "jobs.db")
 jobstores = {"default": SQLAlchemyJobStore(url=f"sqlite:///{_jobs_db}")}
-scheduler = AsyncIOScheduler(jobstores=jobstores, misfire_grace_time=600)
+scheduler = AsyncIOScheduler(jobstores=jobstores, timezone=SCHEDULER_TZ, misfire_grace_time=600)
+scheduler_jobs.set_scheduler(scheduler)
 
 
 @bot.event
@@ -65,7 +69,6 @@ async def on_ready():
         log.error("Failed to sync commands: %s", e)
 
     # Schedule daily jobs (idempotent: replace_existing=True)
-    import scheduler_jobs
     from scheduler_jobs import run_daily_assignments, run_escalation_check
 
     scheduler_jobs.set_bot(bot)

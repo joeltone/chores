@@ -43,6 +43,12 @@ Each person gets a Discord thread in the chores channel with their assigned chor
 /chore upcoming
 ```
 
+**Get a one-time nudge later today**
+```
+/chore remind-me   time: 6:30pm
+```
+Fires once, at that time today (Manitoba time — see Automation below). Posts in your thread if you have one going today, otherwise DMs you. Skips silently if you've already finished everything by then.
+
 ---
 
 ## Admin Actions
@@ -89,8 +95,11 @@ If a URL is compromised:
 
 ## Automation
 
+All times below are Manitoba time (`America/Winnipeg`), regardless of what timezone the host server runs in — see `clock.py`.
+
 | Time | What happens |
 |------|-------------|
 | 8:00 AM daily | New assignments posted as per-user threads |
 | 9:00 AM daily | Overdue chores escalated; admin pinged |
+| User-picked, once | `/chore remind-me` fires its one-time reminder |
 | On restart | All incomplete chore buttons re-registered automatically |
