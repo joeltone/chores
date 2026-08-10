@@ -26,6 +26,13 @@ A self-hosted household chore rotation bot, managed entirely through Discord sla
 - Added `HOUSE_GUIDE.md` — a plain-language walkthrough of the rotation, daily automation, and every command, written for non-technical household members (as opposed to `GUIDE.md`, which is the terse admin/dev command reference)
 - Linked it from `README.md` alongside `GUIDE.md`
 
+### Scheduler Misfire Bug (2026-08-10)
+- Daily 8am assignment job silently didn't run — no threads posted, log showed `WARNING ... Run time of job "run_daily_assignments" ... was missed by 0:00:15`
+- Root cause: `bot.py` passed `misfire_grace_time=600` as a flat kwarg to `AsyncIOScheduler(...)`; APScheduler only honors that setting when nested under `job_defaults`, so the real grace time silently fell back to the library default of **1 second** — any event-loop delay past ~1s (Discord gateway RESUME churn, in this case) caused the job to be skipped entirely instead of just running late
+- Fixed by changing to `job_defaults={"misfire_grace_time": 600}`; verified against the installed APScheduler package directly (`scheduler._job_defaults`) before and after
+- Restarted `chore-bot.service` to deploy; backfilled the missed run via the existing `/admin run-assignments` command
+- Follow-up check: Morgy got no thread in the backfilled run — confirmed via DB query this was correct (no incomplete or newly-due chores for her that day), not a second bug
+
 ### Bugs Fixed
 - APScheduler pickle error — Discord bot object isn't serialisable; fixed by storing bot reference in module scope instead of passing as job argument
 - `DB_PATH` pointed to `/opt/chore-bot` before directory existed — moved databases to `data/` subfolder
